@@ -59,13 +59,36 @@ bun install
 
 ## Using with Docker
 
-Build image
+### Using Pre-built Image from GitHub Container Registry
+
+You can pull and run the pre-built image directly from GitHub Container Registry:
+
+```sh
+# Pull the latest image
+docker pull ghcr.io/ericc-ch/copilot-api:latest
+
+# Create a directory on your host to persist the GitHub token and related data
+mkdir -p ./copilot-data
+
+# Run the container with a bind mount to persist the token
+docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api ghcr.io/ericc-ch/copilot-api:latest
+```
+
+Available tags:
+- `latest` - Latest build from the master branch
+- `v*.*.*` - Specific version tags (e.g., `v1.0.0`)
+- `master` - Latest master branch build
+- `<sha>` - Specific commit builds
+
+### Building Locally
+
+Build image from source:
 
 ```sh
 docker build -t copilot-api .
 ```
 
-Run the container
+Run the locally built container:
 
 ```sh
 # Create a directory on your host to persist the GitHub token and related data
@@ -97,6 +120,24 @@ docker run -p 4141:4141 -e GH_TOKEN=your_token copilot-api start --verbose --por
 
 ### Docker Compose Example
 
+Using pre-built image:
+
+```yaml
+version: "3.8"
+services:
+  copilot-api:
+    image: ghcr.io/ericc-ch/copilot-api:latest
+    ports:
+      - "4141:4141"
+    environment:
+      - GH_TOKEN=your_github_token_here
+    volumes:
+      - ./copilot-data:/root/.local/share/copilot-api
+    restart: unless-stopped
+```
+
+Or building from source:
+
 ```yaml
 version: "3.8"
 services:
@@ -106,6 +147,8 @@ services:
       - "4141:4141"
     environment:
       - GH_TOKEN=your_github_token_here
+    volumes:
+      - ./copilot-data:/root/.local/share/copilot-api
     restart: unless-stopped
 ```
 
