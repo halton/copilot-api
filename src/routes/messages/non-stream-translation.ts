@@ -80,10 +80,22 @@ function handleSystemPrompt(
 
   if (typeof system === "string") {
     return [{ role: "system", content: system }]
-  } else {
-    const systemText = system.map((block) => block.text).join("\n\n")
-    return [{ role: "system", content: systemText }]
   }
+
+  let output_system: Array<AnthropicTextBlock> = system
+  if (Array.isArray(system)) {
+    output_system = system.filter(
+      (block): block is AnthropicTextBlock =>
+        !block.text.includes("x-anthropic-billing-header:"),
+    )
+  }
+
+  return [
+    {
+      role: "system",
+      content: output_system.map((block) => block.text).join("\n\n"),
+    },
+  ]
 }
 
 function handleUserMessage(message: AnthropicUserMessage): Array<Message> {
