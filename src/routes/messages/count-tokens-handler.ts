@@ -4,6 +4,11 @@ import consola from "consola"
 
 import { state } from "~/lib/state"
 import { getTokenCount } from "~/lib/tokenizer"
+import {
+  createMessages,
+  getForwardHeaders,
+  isClaudeMessagesRequest,
+} from "~/services/copilot/create-messages"
 
 import { type AnthropicMessagesPayload } from "./anthropic-types"
 import { translateToOpenAI } from "./non-stream-translation"
@@ -13,9 +18,25 @@ import { translateToOpenAI } from "./non-stream-translation"
  */
 export async function handleCountTokens(c: Context) {
   try {
+    const bodyText = await c.req.text()
+    consola.debug("Anthropic count_tokens payload:", bodyText.slice(0, 1000))
+
+    if (isClaudeMessagesRequest(bodyText)) {
+      const response = await createMessages(
+        bodyText,
+        c.req.raw.headers,
+        "/v1/messages/count_tokens",
+      )
+
+      return new Response(response.body, {
+        status: response.status,
+        headers: getForwardHeaders(response.headers),
+      })
+    }
+
     const anthropicBeta = c.req.header("anthropic-beta")
 
-    const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
+    const anthropicPayload = JSON.parse(bodyText) as AnthropicMessagesPayload
 
     const openAIPayload = translateToOpenAI(anthropicPayload)
 

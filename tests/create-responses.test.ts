@@ -1,9 +1,10 @@
 import { expect, mock, test } from "bun:test"
 
 import { state } from "../src/lib/state"
-import { isResponsesModelAllowed } from "../src/routes/responses/handler"
 import {
   createResponses,
+  getForwardHeaders,
+  isResponsesModelAllowed,
   type ResponsesPayload,
 } from "../src/services/copilot/create-responses"
 
@@ -32,7 +33,7 @@ test("posts responses payload to the GitHub responses endpoint", async () => {
     input: "hello",
   }
 
-  await createResponses(payload)
+  await createResponses(JSON.stringify(payload), new Headers())
 
   expect(fetchMock).toHaveBeenCalled()
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
@@ -44,8 +45,26 @@ test("posts responses payload to the GitHub responses endpoint", async () => {
   expect(headers["X-Initiator"]).toBe("user")
 })
 
-test("allows only gpt-5.4 style responses models", () => {
-  expect(isResponsesModelAllowed("gpt-5.4")).toBe(true)
-  expect(isResponsesModelAllowed("gpt5.4")).toBe(true)
-  expect(isResponsesModelAllowed("gpt-4.1")).toBe(false)
+test("allows GPT models for responses", () => {
+  expect(isResponsesModelAllowed('{"model":"gpt-5.4"}')).toBe(true)
+  expect(isResponsesModelAllowed('{"model":"gpt-4.1"}')).toBe(true)
+  expect(isResponsesModelAllowed('{"model":"gpt-4o"}')).toBe(true)
+  expect(isResponsesModelAllowed('{"model":"claude-sonnet-4"}')).toBe(false)
+  expect(isResponsesModelAllowed("{}")).toBe(false)
+})
+
+test("filters responses headers through the responses helper", () => {
+  const headers = getForwardHeaders(
+    new Headers({
+      connection: "keep-alive",
+      "content-type": "application/json",
+      "cache-control": "no-cache",
+      "x-request-id": "req_123",
+    }),
+  )
+
+  expect(headers.get("connection")).toBeNull()
+  expect(headers.get("content-type")).toBe("application/json")
+  expect(headers.get("cache-control")).toBe("no-cache")
+  expect(headers.get("x-request-id")).toBe("req_123")
 })

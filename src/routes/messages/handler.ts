@@ -11,6 +11,11 @@ import {
   type ChatCompletionChunk,
   type ChatCompletionResponse,
 } from "~/services/copilot/create-chat-completions"
+import {
+  createMessages,
+  getForwardHeaders,
+  isClaudeMessagesRequest,
+} from "~/services/copilot/create-messages"
 
 import {
   type AnthropicMessagesPayload,
@@ -25,7 +30,22 @@ import { translateChunkToAnthropicEvents } from "./stream-translation"
 export async function handleCompletion(c: Context) {
   await checkRateLimit(state)
 
-  const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
+  const bodyText = await c.req.text()
+  consola.debug("Anthropic request payload:", bodyText.slice(0, 1000))
+
+  if (isClaudeMessagesRequest(bodyText)) {
+    if (state.manualApprove) {
+      await awaitApproval()
+    }
+    const response = await createMessages(bodyText, c.req.raw.headers)
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: getForwardHeaders(response.headers),
+    })
+  }
+
+  const anthropicPayload = JSON.parse(bodyText) as AnthropicMessagesPayload
   consola.debug("Anthropic request payload:", JSON.stringify(anthropicPayload))
 
   const openAIPayload = translateToOpenAI(anthropicPayload)

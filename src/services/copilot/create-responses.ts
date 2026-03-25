@@ -1,8 +1,4 @@
-import consola from "consola"
-
-import { copilotBaseUrl, copilotHeaders } from "~/lib/api-config"
-import { HTTPError } from "~/lib/error"
-import { state } from "~/lib/state"
+import { filterResponseHeaders, postCopilotPassthrough } from "./passthrough"
 
 export interface ResponsesPayload {
   model?: string
@@ -10,24 +6,39 @@ export interface ResponsesPayload {
   [key: string]: unknown
 }
 
-export const createResponses = async (payload: ResponsesPayload) => {
-  if (!state.copilotToken) throw new Error("Copilot token not found")
+const RESPONSE_HEADERS_TO_FORWARD = [
+  "content-type",
+  "cache-control",
+  "x-request-id",
+] as const
 
-  const headers: Record<string, string> = {
-    ...copilotHeaders(state),
-    "X-Initiator": "user",
+export function isResponsesModelAllowed(bodyText: string): boolean {
+  const payload = tryParsePayload(bodyText)
+  return payload?.model?.startsWith("gpt") ?? false
+}
+
+function tryParsePayload(bodyText: string): ResponsesPayload | undefined {
+  try {
+    return JSON.parse(bodyText) as ResponsesPayload
+  } catch {
+    return undefined
   }
+}
 
-  const response = await fetch(`${copilotBaseUrl(state)}/responses`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
+export const createResponses = async (
+  bodyText: string,
+  requestHeaders?: Headers,
+) => {
+  return postCopilotPassthrough({
+    path: "/responses",
+    body: bodyText,
+    requestHeaders,
+    initiator: "user",
+    errorMessage: "Failed to create responses",
+    throwOnError: true,
   })
+}
 
-  if (!response.ok) {
-    consola.error("Failed to create responses", response)
-    throw new HTTPError("Failed to create responses", response)
-  }
-
-  return response
+export function getForwardHeaders(headers: Headers): Headers {
+  return filterResponseHeaders(headers, RESPONSE_HEADERS_TO_FORWARD)
 }
