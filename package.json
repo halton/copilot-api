@@ -1,5 +1,5 @@
 {
-  "name": "copilot-api",
+  "name": "xc-copilot-api",
   "version": "1.0.0",
   "description": "Turn GitHub Copilot into OpenAI/Anthropic API compatible server. Usable with Claude Code and Codex",
   "keywords": [
@@ -16,7 +16,7 @@
   "author": "Xiaochen <wxc9312@gmail.com>",
   "type": "module",
   "bin": {
-    "copilot-api": "./dist/main.js"
+    "xc-copilot-api": "./dist/main.js"
   },
   "files": [
     "dist"
