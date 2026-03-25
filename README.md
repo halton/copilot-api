@@ -1,5 +1,8 @@
 # Copilot API Proxy
 
+> **Fork Notice:**  
+> The original project by [ericc-ch](https://github.com/ericc-ch/copilot-api) is no longer actively maintained. This fork by [billxc](https://github.com/billxc/copilot-api) updates the project for personal use, adding native passthrough support for the Responses API and Claude API.
+
 > [!WARNING]
 > This is a reverse-engineered proxy of GitHub Copilot API. It is not supported by GitHub, and may break unexpectedly. Use at your own risk.
 
@@ -65,13 +68,13 @@ You can pull and run the pre-built image directly from GitHub Container Registry
 
 ```sh
 # Pull the latest image
-docker pull ghcr.io/ericc-ch/copilot-api:latest
+docker pull ghcr.io/billxc/copilot-api:latest
 
 # Create a directory on your host to persist the GitHub token and related data
 mkdir -p ./copilot-data
 
 # Run the container with a bind mount to persist the token
-docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api ghcr.io/ericc-ch/copilot-api:latest
+docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api ghcr.io/billxc/copilot-api:latest
 ```
 
 Available tags:
@@ -126,7 +129,7 @@ Using pre-built image:
 version: "3.8"
 services:
   copilot-api:
-    image: ghcr.io/ericc-ch/copilot-api:latest
+    image: ghcr.io/billxc/copilot-api:latest
     ports:
       - "4141:4141"
     environment:
@@ -309,7 +312,7 @@ After starting the server, a URL to the Copilot Usage Dashboard will be displaye
     npx copilot-api@latest start
     ```
 2.  The server will output a URL to the usage viewer. Copy and paste this URL into your browser. It will look something like this:
-    `https://ericc-ch.github.io/copilot-api?endpoint=http://localhost:4141/usage`
+    `https://billxc.github.io/copilot-api?endpoint=http://localhost:4141/usage`
     - If you use the `start.bat` script on Windows, this page will open automatically.
 
 The dashboard provides a user-friendly interface to view your Copilot usage data:
@@ -319,7 +322,7 @@ The dashboard provides a user-friendly interface to view your Copilot usage data
 - **Usage Quotas**: View a summary of your usage quotas for different services like Chat and Completions, displayed with progress bars for a quick overview.
 - **Detailed Information**: See the full JSON response from the API for a detailed breakdown of all available usage statistics.
 - **URL-based Configuration**: You can also specify the API endpoint directly in the URL using a query parameter. This is useful for bookmarks or sharing links. For example:
-  `https://ericc-ch.github.io/copilot-api?endpoint=http://your-api-server/usage`
+  `https://billxc.github.io/copilot-api?endpoint=http://your-api-server/usage`
 
 ## Using with Claude Code
 
@@ -392,3 +395,23 @@ bun run start
   - `--rate-limit <seconds>`: Enforces a minimum time interval between requests. For example, `copilot-api start --rate-limit 30` will ensure there's at least a 30-second gap between requests.
   - `--wait`: Use this with `--rate-limit`. It makes the server wait for the cooldown period to end instead of rejecting the request with an error. This is useful for clients that don't automatically retry on rate limit errors.
 - If you have a GitHub business or enterprise plan account with Copilot, use the `--account-type` flag (e.g., `--account-type business`). See the [official documentation](https://docs.github.com/en/enterprise-cloud@latest/copilot/managing-copilot/managing-github-copilot-in-your-organization/managing-access-to-github-copilot-in-your-organization/managing-github-copilot-access-to-your-organizations-network#configuring-copilot-subscription-based-network-routing-for-your-enterprise-or-organization) for more details.
+
+## Update Log
+
+### Native Passthrough for Responses API and Claude API
+
+The proxy now supports **native passthrough** for both the OpenAI Responses API (`/responses`) and the Anthropic Messages API (`/v1/messages`, `/v1/messages/count_tokens`) when targeting supported models.
+
+#### What changed
+
+- **Claude API passthrough**: When the request model starts with `claude`, the entire Anthropic Messages request is forwarded directly to the upstream Copilot endpoint without any local translation. The request body, headers (`anthropic-version`, `anthropic-beta`, etc.), and response are passed through as-is.
+
+- **Responses API passthrough**: When the request model starts with `gpt`, the OpenAI Responses API request is forwarded directly to the upstream `/responses` endpoint without transformation.
+
+- **Non-matching models fall back to local translation**: For non-Claude models hitting `/v1/messages`, the existing Anthropic-to-OpenAI translation layer is still used, converting Anthropic Messages format to OpenAI Chat Completions and translating responses back.
+
+#### Why this matters
+
+- **Full protocol fidelity**: Native passthrough preserves all upstream features (tool use, streaming, thinking blocks, vision, etc.) without any translation loss.
+- **Simpler architecture**: The passthrough path is a thin wrapper — no body parsing, no model normalization, no feature detection. What goes in is what goes out.
+- **Better compatibility**: Claude Code and other Anthropic-native clients get the exact upstream behavior they expect, including proper `tool_use`/`tool_result` round trips, `count_tokens` support, and streaming.
