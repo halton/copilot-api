@@ -4,6 +4,7 @@ import { events } from "fetch-event-stream"
 import { copilotHeaders, copilotBaseUrl } from "~/lib/api-config"
 import { HTTPError } from "~/lib/error"
 import { state } from "~/lib/state"
+import { forceRefreshCopilotToken } from "~/lib/token"
 
 export const createChatCompletions = async (
   payload: ChatCompletionsPayload,
@@ -22,17 +23,28 @@ export const createChatCompletions = async (
     ["assistant", "tool"].includes(msg.role),
   )
 
-  // Build headers and add X-Initiator
-  const headers: Record<string, string> = {
+  const buildHeaders = () => ({
     ...copilotHeaders(state, enableVision),
     "X-Initiator": isAgentCall ? "agent" : "user",
-  }
+  })
 
-  const response = await fetch(`${copilotBaseUrl(state)}/chat/completions`, {
+  // First attempt
+  let response = await fetch(`${copilotBaseUrl(state)}/chat/completions`, {
     method: "POST",
-    headers,
+    headers: buildHeaders(),
     body: JSON.stringify(payload),
   })
+
+  // If we get 401, try to refresh token and retry once
+  if (response.status === 401) {
+    consola.warn("Received 401, attempting to refresh token and retry")
+    await forceRefreshCopilotToken()
+    response = await fetch(`${copilotBaseUrl(state)}/chat/completions`, {
+      method: "POST",
+      headers: buildHeaders(),
+      body: JSON.stringify(payload),
+    })
+  }
 
   if (!response.ok) {
     consola.error("Failed to create chat completions", response)

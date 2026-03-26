@@ -3,6 +3,7 @@ import consola from "consola"
 import { copilotBaseUrl, copilotHeaders } from "~/lib/api-config"
 import { HTTPError } from "~/lib/error"
 import { state } from "~/lib/state"
+import { forceRefreshCopilotToken } from "~/lib/token"
 
 const HOP_BY_HOP_RESPONSE_HEADERS = new Set([
   "connection",
@@ -50,24 +51,15 @@ export async function postCopilotPassthrough({
     throw new Error("Copilot token not found")
   }
 
-  const headers = buildCopilotRequestHeaders({
-    requestHeaders,
-    forwardRequestHeaders,
-    initiator,
-    enableVision,
-  })
+  // First attempt
+  let response = await makeRequest()
 
-  consola.debug("Passthrough request:", {
-    method: "POST",
-    path,
-    bodyLength: body.length,
-  })
-
-  const response = await fetch(`${copilotBaseUrl(state)}${path}`, {
-    method: "POST",
-    headers,
-    body,
-  })
+  // If we get 401, try to refresh token and retry once
+  if (response.status === 401) {
+    consola.warn("Received 401, attempting to refresh Copilot token and retry")
+    await forceRefreshCopilotToken()
+    response = await makeRequest()
+  }
 
   consola.debug("Passthrough response:", {
     path,
@@ -83,6 +75,28 @@ export async function postCopilotPassthrough({
   }
 
   return response
+
+  // Helper function to make the actual request
+  async function makeRequest() {
+    const headers = buildCopilotRequestHeaders({
+      requestHeaders,
+      forwardRequestHeaders,
+      initiator,
+      enableVision,
+    })
+
+    consola.debug("Passthrough request:", {
+      method: "POST",
+      path,
+      bodyLength: body.length,
+    })
+
+    return fetch(`${copilotBaseUrl(state)}${path}`, {
+      method: "POST",
+      headers,
+      body,
+    })
+  }
 }
 
 export function buildCopilotRequestHeaders({
