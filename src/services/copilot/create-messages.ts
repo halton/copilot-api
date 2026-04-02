@@ -8,6 +8,38 @@ const REQUEST_HEADERS_TO_FORWARD = [
   "anthropic-version",
 ] as const
 
+/**
+ * Parse body JSON and rebuild cache_control objects to only keep "type",
+ * using JSON.parse reviver to avoid mutating input.
+ * Returns original text if no modification is needed.
+ */
+function stripUnsupportedFields(bodyText: string): string {
+  const state = { modified: false }
+
+  try {
+    const body = JSON.parse(bodyText, (_key, value: unknown) => {
+      if (
+        _key === "cache_control"
+        && value !== null
+        && typeof value === "object"
+        && !Array.isArray(value)
+      ) {
+        const cc = value as Record<string, unknown>
+        const keys = Object.keys(cc)
+        if (keys.length > 1 || (keys.length === 1 && !keys.includes("type"))) {
+          state.modified = true
+          return { type: cc.type }
+        }
+      }
+      return value
+    }) as unknown
+
+    return state.modified ? JSON.stringify(body) : bodyText
+  } catch {
+    return bodyText
+  }
+}
+
 export async function createMessages(
   bodyText: string,
   requestHeaders: Headers,
@@ -15,7 +47,7 @@ export async function createMessages(
 ): Promise<Response> {
   return postCopilotPassthrough({
     path,
-    body: bodyText,
+    body: stripUnsupportedFields(bodyText),
     requestHeaders,
     forwardRequestHeaders: REQUEST_HEADERS_TO_FORWARD,
     initiator: "user",
