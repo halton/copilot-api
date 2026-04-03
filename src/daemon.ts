@@ -16,6 +16,7 @@ const ERR_FILE = path.join(APP_DIR, "copilot-api.err")
 
 const LAUNCHD_LABEL = "com.xc-copilot-api"
 const SYSTEMD_UNIT = "xc-copilot-api.service"
+const WINDOWS_RUN_KEY_NAME = "XcCopilotApi"
 
 function plistPath(): string {
   return path.join(
@@ -409,6 +410,193 @@ function statusLinux(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Windows (Registry Run Key + VBS launcher)
+// ---------------------------------------------------------------------------
+
+function windowsAppDir(): string {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")
+  return path.join(localAppData, "copilot-api")
+}
+
+function windowsLauncherVbsPath(): string {
+  return path.join(windowsAppDir(), "launcher.vbs")
+}
+
+function windowsLogFile(): string {
+  return path.join(windowsAppDir(), "copilot-api.log")
+}
+
+function buildWindowsCommand(args: DaemonInstallArgs): string {
+  const startArgs = buildStartArgs(args)
+  const parts = args.npx ? ["npx", ...startArgs] : startArgs
+  return parts.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" ")
+}
+
+function installWindows(args: DaemonInstallArgs): void {
+  const appDir = windowsAppDir()
+  const logFile = windowsLogFile()
+  const errFile = path.join(appDir, "copilot-api.err")
+  const launcherVbs = windowsLauncherVbsPath()
+
+  fs.mkdirSync(appDir, { recursive: true })
+
+  const execCmd = buildWindowsCommand(args)
+
+  // VBS launcher runs command hidden (no console window), with log redirection
+  const cmdStr = `cmd /c cd /d ""${os.homedir()}"" ^& ${execCmd} >> ""${logFile}"" 2>> ""${errFile}""`
+  const vbsContent = [
+    'Set WshShell = CreateObject("WScript.Shell")',
+    `WshShell.Run "${cmdStr}", 0, False`,
+    "",
+  ].join("\r\n")
+  fs.writeFileSync(launcherVbs, vbsContent)
+
+  // Register in current-user Run key (auto-start on login, no admin needed)
+  const result = spawnSync("reg.exe", [
+    "add",
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "/v", WINDOWS_RUN_KEY_NAME,
+    "/t", "REG_SZ",
+    "/d", `wscript.exe "${launcherVbs}"`,
+    "/f",
+  ], { encoding: "utf-8", timeout: 10000 })
+
+  if (result.status !== 0) {
+    console.error(`Failed to register Run key: ${(result.stderr || "").trim()}`)
+    process.exit(1)
+  }
+
+  console.log(`Installed Windows Run key '${WINDOWS_RUN_KEY_NAME}'`)
+  console.log(`  Launcher: ${launcherVbs}`)
+  console.log(`  Log:      ${logFile}`)
+  console.log(`  Mode:     ${args.npx ? "npx (auto-update)" : "direct"}`)
+  console.log(`  Start:    xc-copilot-api-daemon restart`)
+}
+
+function uninstallWindows(): void {
+  stopWindows()
+
+  // Remove Run key
+  spawnSync("reg.exe", [
+    "delete",
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "/v", WINDOWS_RUN_KEY_NAME,
+    "/f",
+  ], { encoding: "utf-8", timeout: 10000 })
+
+  const launcherVbs = windowsLauncherVbsPath()
+  if (fs.existsSync(launcherVbs)) fs.unlinkSync(launcherVbs)
+  // Clean up legacy CMD launcher if present
+  const legacyCmdPath = path.join(windowsAppDir(), "launcher.cmd")
+  if (fs.existsSync(legacyCmdPath)) fs.unlinkSync(legacyCmdPath)
+  console.log(`Uninstalled Windows Run key '${WINDOWS_RUN_KEY_NAME}'`)
+}
+
+function startWindows(): boolean {
+  const launcherVbs = windowsLauncherVbsPath()
+  if (!fs.existsSync(launcherVbs)) {
+    console.error(`Launcher not found: ${launcherVbs}`)
+    console.error("Run 'xc-copilot-api-daemon install' first.")
+    return false
+  }
+
+  spawnSync("wscript.exe", [launcherVbs], {
+    encoding: "utf-8",
+    timeout: 10000,
+    detached: true,
+    stdio: "ignore",
+  })
+
+  console.log("Started xc-copilot-api (background)")
+  return true
+}
+
+function stopWindows(): boolean {
+  // Use wmic to find and kill copilot-api processes
+  const wmicResult = spawnSync("wmic", [
+    "process", "where",
+    "CommandLine like '%copilot-api%' and not CommandLine like '%daemon%stop%'",
+    "get", "ProcessId",
+    "/format:list",
+  ], { encoding: "utf-8", timeout: 10000 })
+
+  if (wmicResult.status === 0) {
+    const pids = wmicResult.stdout
+      .split("\n")
+      .filter((l) => l.startsWith("ProcessId="))
+      .map((l) => l.replace("ProcessId=", "").trim())
+      .filter(Boolean)
+
+    for (const pid of pids) {
+      spawnSync("taskkill", ["/PID", pid, "/F"], { encoding: "utf-8", timeout: 5000 })
+    }
+
+    if (pids.length > 0) {
+      console.log(`Stopped ${pids.length} process(es)`)
+      return true
+    }
+  }
+
+  console.log("No copilot-api processes found.")
+  return true
+}
+
+function statusWindows(): void {
+  // Check Run key
+  const regResult = spawnSync("reg.exe", [
+    "query",
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "/v", WINDOWS_RUN_KEY_NAME,
+  ], { encoding: "utf-8", timeout: 5000 })
+
+  if (regResult.status !== 0) {
+    console.log("Daemon: not installed")
+    return
+  }
+
+  console.log("Daemon: installed")
+
+  // Show command from VBS launcher
+  const launcherVbs = windowsLauncherVbsPath()
+  if (fs.existsSync(launcherVbs)) {
+    const content = fs.readFileSync(launcherVbs, "utf-8")
+    // Extract the command between cd /d ... ^& and >> ...
+    const match = content.match(/\^&\s*(.+?)\s*>>/)
+    if (match) {
+      console.log(`  Command: ${match[1].trim()}`)
+    }
+  }
+
+  // Check if running
+  const wmicResult = spawnSync("wmic", [
+    "process", "where",
+    "CommandLine like '%copilot-api%start%'",
+    "get", "ProcessId",
+    "/format:list",
+  ], { encoding: "utf-8", timeout: 10000 })
+
+  if (wmicResult.status === 0) {
+    const pids = wmicResult.stdout
+      .split("\n")
+      .filter((l) => l.startsWith("ProcessId="))
+      .map((l) => l.replace("ProcessId=", "").trim())
+      .filter(Boolean)
+
+    console.log(pids.length > 0
+      ? `  Status: running (PID ${pids.join(", ")})`
+      : "  Status: not running")
+  } else {
+    console.log("  Status: unknown")
+  }
+
+  const logFile = windowsLogFile()
+  if (fs.existsSync(logFile)) {
+    const stat = fs.statSync(logFile)
+    console.log(`  Log: ${logFile} (${(stat.size / 1024).toFixed(1)} KB)`)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // --all: find all copilot-api related jobs / processes
 // ---------------------------------------------------------------------------
 
@@ -606,11 +794,13 @@ function isLinux(): boolean {
   return process.platform === "linux"
 }
 
+function isWindows(): boolean {
+  return process.platform === "win32"
+}
+
 function assertSupported(): void {
-  if (!isMacOS() && !isLinux()) {
-    console.error(
-      "Daemon management is only supported on macOS and Linux.",
-    )
+  if (!isMacOS() && !isLinux() && !isWindows()) {
+    console.error("Daemon management is only supported on macOS, Linux, and Windows.")
     process.exit(1)
   }
 }
@@ -623,7 +813,7 @@ const installCmd = defineCommand({
   meta: {
     name: "install",
     description:
-      "Install xc-copilot-api daemon (launchd on macOS, systemd on Linux)",
+      "Install xc-copilot-api daemon (launchd on macOS, systemd on Linux, Run key on Windows)",
   },
   args: {
     npx: {
@@ -673,6 +863,8 @@ const installCmd = defineCommand({
     }
     if (isMacOS()) {
       installMacOS(installArgs)
+    } else if (isWindows()) {
+      installWindows(installArgs)
     } else {
       installLinux(installArgs)
     }
@@ -688,6 +880,8 @@ const uninstallCmd = defineCommand({
     assertSupported()
     if (isMacOS()) {
       uninstallMacOS()
+    } else if (isWindows()) {
+      uninstallWindows()
     } else {
       uninstallLinux()
     }
@@ -713,6 +907,8 @@ const statusCmd = defineCommand({
       statusAll()
     } else if (isMacOS()) {
       statusMacOS()
+    } else if (isWindows()) {
+      statusWindows()
     } else {
       statusLinux()
     }
@@ -729,6 +925,9 @@ const restartCmd = defineCommand({
     assertSupported()
     if (isMacOS()) {
       if (!startMacOS()) process.exit(1)
+    } else if (isWindows()) {
+      stopWindows()
+      if (!startWindows()) process.exit(1)
     } else {
       stopLinux()
       if (!startLinux()) process.exit(1)
@@ -755,6 +954,8 @@ const stopCmd = defineCommand({
       stopAll()
     } else if (isMacOS()) {
       if (!stopMacOS()) process.exit(1)
+    } else if (isWindows()) {
+      if (!stopWindows()) process.exit(1)
     } else {
       if (!stopLinux()) process.exit(1)
     }
@@ -782,21 +983,29 @@ const logsCmd = defineCommand({
   },
   run({ args }) {
     assertSupported()
-    if (!fs.existsSync(LOG_FILE)) {
+    const logPath = isWindows() ? windowsLogFile() : LOG_FILE
+    if (!fs.existsSync(logPath)) {
       console.log("No log file found.")
       return
     }
 
-    if (args.follow) {
-      const { status } = spawnSync("tail", ["-f", LOG_FILE], {
-        stdio: "inherit",
-      })
-      process.exit(status ?? 0)
+    if (isWindows()) {
+      // Windows: use powershell Get-Content
+      if (args.follow) {
+        const { status } = spawnSync("powershell", ["-Command", `Get-Content -Path '${logPath}' -Wait -Tail ${args.lines}`], { stdio: "inherit" })
+        process.exit(status ?? 0)
+      } else {
+        const { status } = spawnSync("powershell", ["-Command", `Get-Content -Path '${logPath}' -Tail ${args.lines}`], { stdio: "inherit" })
+        process.exit(status ?? 0)
+      }
     } else {
-      const { status } = spawnSync("tail", ["-n", args.lines, LOG_FILE], {
-        stdio: "inherit",
-      })
-      process.exit(status ?? 0)
+      if (args.follow) {
+        const { status } = spawnSync("tail", ["-f", logPath], { stdio: "inherit" })
+        process.exit(status ?? 0)
+      } else {
+        const { status } = spawnSync("tail", ["-n", args.lines, logPath], { stdio: "inherit" })
+        process.exit(status ?? 0)
+      }
     }
   },
 })

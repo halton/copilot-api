@@ -191,6 +191,8 @@ Copilot API now uses a subcommand structure with these main commands:
 - `check-usage`: Show your current GitHub Copilot usage and quota information directly in the terminal (no server required).
 - `debug`: Display diagnostic information including version, runtime details, file paths, and authentication status. Useful for troubleshooting and support.
 
+A separate **[`xc-copilot-api-daemon`](docs/daemon.md)** CLI is available for managing the server as a background daemon (install, status, restart, stop, uninstall, logs) on macOS, Linux, and Windows.
+
 ## Command Line Options
 
 ### Start Command Options
