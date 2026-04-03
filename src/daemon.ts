@@ -511,30 +511,35 @@ function startWindows(): boolean {
   return true
 }
 
-function stopWindows(): boolean {
-  // Use wmic to find and kill copilot-api processes
-  const wmicResult = spawnSync("wmic", [
-    "process", "where",
-    "CommandLine like '%copilot-api%' and not CommandLine like '%daemon%stop%'",
-    "get", "ProcessId",
-    "/format:list",
+function findCopilotPids(filter: string): string[] {
+  // Use WQL filter; exclude the PowerShell process itself ($PID) to avoid self-matching
+  const wqlFilter = filter.replace(/\*/g, "%")
+  const result = spawnSync("powershell", [
+    "-NoProfile", "-Command",
+    `Get-CimInstance Win32_Process -Filter "CommandLine LIKE '${wqlFilter}' AND ProcessId != $PID" | Select-Object -ExpandProperty ProcessId`,
   ], { encoding: "utf-8", timeout: 10000 })
 
-  if (wmicResult.status === 0) {
-    const pids = wmicResult.stdout
-      .split("\n")
-      .filter((l) => l.startsWith("ProcessId="))
-      .map((l) => l.replace("ProcessId=", "").trim())
-      .filter(Boolean)
+  if (result.status !== 0) return []
+  return result.stdout.split("\n").map((l) => l.trim()).filter(Boolean)
+}
 
-    for (const pid of pids) {
-      spawnSync("taskkill", ["/PID", pid, "/F"], { encoding: "utf-8", timeout: 5000 })
-    }
+function stopWindows(): boolean {
+  // Find copilot-api processes excluding daemon management and self
+  const result = spawnSync("powershell", [
+    "-NoProfile", "-Command",
+    `Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%copilot-api%' AND NOT (CommandLine LIKE '%daemon%') AND ProcessId != $PID" | Select-Object -ExpandProperty ProcessId`,
+  ], { encoding: "utf-8", timeout: 10000 })
 
-    if (pids.length > 0) {
-      console.log(`Stopped ${pids.length} process(es)`)
-      return true
-    }
+  const pids = (result.status === 0 ? result.stdout : "")
+    .split("\n").map((l) => l.trim()).filter(Boolean)
+
+  for (const pid of pids) {
+    spawnSync("taskkill", ["/PID", pid, "/F"], { encoding: "utf-8", timeout: 5000 })
+  }
+
+  if (pids.length > 0) {
+    console.log(`Stopped ${pids.length} process(es)`)
+    return true
   }
 
   console.log("No copilot-api processes found.")
@@ -568,26 +573,11 @@ function statusWindows(): void {
   }
 
   // Check if running
-  const wmicResult = spawnSync("wmic", [
-    "process", "where",
-    "CommandLine like '%copilot-api%start%'",
-    "get", "ProcessId",
-    "/format:list",
-  ], { encoding: "utf-8", timeout: 10000 })
+  const pids = findCopilotPids("*copilot-api*start*")
 
-  if (wmicResult.status === 0) {
-    const pids = wmicResult.stdout
-      .split("\n")
-      .filter((l) => l.startsWith("ProcessId="))
-      .map((l) => l.replace("ProcessId=", "").trim())
-      .filter(Boolean)
-
-    console.log(pids.length > 0
-      ? `  Status: running (PID ${pids.join(", ")})`
-      : "  Status: not running")
-  } else {
-    console.log("  Status: unknown")
-  }
+  console.log(pids.length > 0
+    ? `  Status: running (PID ${pids.join(", ")})`
+    : "  Status: not running")
 
   const logFile = windowsLogFile()
   if (fs.existsSync(logFile)) {
