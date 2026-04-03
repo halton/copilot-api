@@ -42,7 +42,9 @@ export function shellQuote(s: string): string {
 
 export function buildNpxCommand(args: DaemonInstallArgs): string {
   const startArgs = buildStartArgs(args)
-  return ["npx", ...startArgs].map(shellQuote).join(" ")
+  // -y skips install prompt; @latest ensures fresh version on every run
+  startArgs[0] = "xc-copilot-api@latest"
+  return ["npx", "-y", ...startArgs].map(shellQuote).join(" ")
 }
 
 export function buildDirectCommand(args: DaemonInstallArgs): string {

@@ -102,7 +102,7 @@ npx -y -p xc-copilot-api xc-copilot-api-daemon stop --all
 
 ### npx Mode (default)
 
-When installed with npx mode (the default), each restart runs `npx xc-copilot-api start`, which always fetches the latest published version. This gives you auto-updates without any extra steps — just restart the daemon.
+When installed with npx mode (the default), each restart runs `npx -y xc-copilot-api@latest start`, which always fetches the latest published version. This gives you auto-updates without any extra steps — just restart the daemon.
 
 ### Direct Mode
 

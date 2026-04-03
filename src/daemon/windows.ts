@@ -24,8 +24,12 @@ export function windowsLogFile(): string {
 
 function buildWindowsCommand(args: DaemonInstallArgs): string {
   const startArgs = buildStartArgs(args)
-  const parts = args.npx ? ["npx", ...startArgs] : startArgs
-  return parts.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" ")
+  if (args.npx) {
+    startArgs[0] = "xc-copilot-api@latest"
+    const parts = ["npx", "-y", ...startArgs]
+    return parts.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" ")
+  }
+  return startArgs.map((s) => (s.includes(" ") ? `"${s}"` : s)).join(" ")
 }
 
 export function installWindows(args: DaemonInstallArgs): void {
