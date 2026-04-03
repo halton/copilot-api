@@ -1,6 +1,6 @@
 # xc-copilot-api-daemon
 
-Manage xc-copilot-api as a background daemon (launchd on macOS, systemd on Linux, Run key on Windows).
+Manage xc-copilot-api as a background daemon (launchd on macOS, systemd on Linux, Task Scheduler on Windows).
 
 This is a **standalone CLI**, separate from the main `xc-copilot-api` command, to keep things lightweight.
 
@@ -21,7 +21,7 @@ npx -y -p xc-copilot-api xc-copilot-api-daemon <command>
 
 | Command     | Description                                                  |
 | ----------- | ------------------------------------------------------------ |
-| `install`   | Install daemon (launchd on macOS, systemd on Linux, Run key on Windows) |
+| `install`   | Install daemon (launchd on macOS, systemd on Linux, Task Scheduler on Windows) |
 | `uninstall` | Uninstall the daemon                                         |
 | `status`    | Show daemon status (`--all` to show all copilot-api instances) |
 | `restart`   | Restart the daemon (npx mode auto-updates on restart)        |
@@ -94,10 +94,10 @@ npx -y -p xc-copilot-api xc-copilot-api-daemon stop --all
 - Logs to `~/.local/share/copilot-api/copilot-api.log`
 - `Restart=on-failure` — auto-restarts on crash
 
-### Windows (Registry Run Key)
+### Windows (Task Scheduler)
 
-- Writes a VBS launcher at `%LOCALAPPDATA%\copilot-api\launcher.vbs` (runs hidden, no console window)
-- Registers `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\XcCopilotApi` — starts on login, no admin needed
+- Creates a `launcher.cmd` batch script at `%LOCALAPPDATA%\copilot-api\launcher.cmd`
+- Registers a scheduled task `XcCopilotApi` via `schtasks` — triggers on logon, no admin needed
 - Logs to `%LOCALAPPDATA%\copilot-api\copilot-api.log`
 
 ### npx Mode (default)

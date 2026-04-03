@@ -16,7 +16,7 @@ const ERR_FILE = path.join(APP_DIR, "copilot-api.err")
 
 const LAUNCHD_LABEL = "com.xc-copilot-api"
 const SYSTEMD_UNIT = "xc-copilot-api.service"
-const WINDOWS_RUN_KEY_NAME = "XcCopilotApi"
+const WINDOWS_TASK_NAME = "XcCopilotApi"
 
 function plistPath(): string {
   return path.join(
@@ -410,7 +410,7 @@ function statusLinux(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Windows (Registry Run Key + VBS launcher)
+// Windows (Task Scheduler)
 // ---------------------------------------------------------------------------
 
 function windowsAppDir(): string {
@@ -418,8 +418,8 @@ function windowsAppDir(): string {
   return path.join(localAppData, "copilot-api")
 }
 
-function windowsLauncherVbsPath(): string {
-  return path.join(windowsAppDir(), "launcher.vbs")
+function windowsLauncherCmdPath(): string {
+  return path.join(windowsAppDir(), "launcher.cmd")
 }
 
 function windowsLogFile(): string {
@@ -436,38 +436,39 @@ function installWindows(args: DaemonInstallArgs): void {
   const appDir = windowsAppDir()
   const logFile = windowsLogFile()
   const errFile = path.join(appDir, "copilot-api.err")
-  const launcherVbs = windowsLauncherVbsPath()
+  const launcherCmd = windowsLauncherCmdPath()
 
   fs.mkdirSync(appDir, { recursive: true })
 
   const execCmd = buildWindowsCommand(args)
 
-  // VBS launcher runs command hidden (no console window), with log redirection
-  const cmdStr = `cmd /c cd /d ""${os.homedir()}"" ^& ${execCmd} >> ""${logFile}"" 2>> ""${errFile}""`
-  const vbsContent = [
-    'Set WshShell = CreateObject("WScript.Shell")',
-    `WshShell.Run "${cmdStr}", 0, False`,
+  // CMD launcher script with log redirection
+  const cmdContent = [
+    "@echo off",
+    `cd /d "%USERPROFILE%"`,
+    `${execCmd} >> "${logFile}" 2>> "${errFile}"`,
     "",
   ].join("\r\n")
-  fs.writeFileSync(launcherVbs, vbsContent)
+  fs.writeFileSync(launcherCmd, cmdContent)
 
-  // Register in current-user Run key (auto-start on login, no admin needed)
-  const result = spawnSync("reg.exe", [
-    "add",
-    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/v", WINDOWS_RUN_KEY_NAME,
-    "/t", "REG_SZ",
-    "/d", `wscript.exe "${launcherVbs}"`,
-    "/f",
-  ], { encoding: "utf-8", timeout: 10000 })
+  // Register as a scheduled task (on-logon trigger, no admin needed)
+  const psCmd = [
+    `$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c "${launcherCmd}"'`,
+    `$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME`,
+    `$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)`,
+    `Register-ScheduledTask -TaskName '${WINDOWS_TASK_NAME}' -Action $action -Trigger $trigger -Settings $settings -Force`,
+  ].join("; ")
+  const result = spawnSync("powershell", [
+    "-NoProfile", "-Command", psCmd,
+  ], { encoding: "utf-8", timeout: 15000 })
 
   if (result.status !== 0) {
-    console.error(`Failed to register Run key: ${(result.stderr || "").trim()}`)
+    console.error(`Failed to create scheduled task: ${(result.stderr || "").trim()}`)
     process.exit(1)
   }
 
-  console.log(`Installed Windows Run key '${WINDOWS_RUN_KEY_NAME}'`)
-  console.log(`  Launcher: ${launcherVbs}`)
+  console.log(`Installed scheduled task '${WINDOWS_TASK_NAME}'`)
+  console.log(`  Launcher: ${launcherCmd}`)
   console.log(`  Log:      ${logFile}`)
   console.log(`  Mode:     ${args.npx ? "npx (auto-update)" : "direct"}`)
   console.log(`  Start:    xc-copilot-api-daemon restart`)
@@ -476,36 +477,40 @@ function installWindows(args: DaemonInstallArgs): void {
 function uninstallWindows(): void {
   stopWindows()
 
-  // Remove Run key
-  spawnSync("reg.exe", [
-    "delete",
-    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/v", WINDOWS_RUN_KEY_NAME,
+  // Remove scheduled task
+  spawnSync("schtasks", [
+    "/delete",
+    "/tn", WINDOWS_TASK_NAME,
     "/f",
   ], { encoding: "utf-8", timeout: 10000 })
 
-  const launcherVbs = windowsLauncherVbsPath()
-  if (fs.existsSync(launcherVbs)) fs.unlinkSync(launcherVbs)
-  // Clean up legacy CMD launcher if present
-  const legacyCmdPath = path.join(windowsAppDir(), "launcher.cmd")
-  if (fs.existsSync(legacyCmdPath)) fs.unlinkSync(legacyCmdPath)
-  console.log(`Uninstalled Windows Run key '${WINDOWS_RUN_KEY_NAME}'`)
+  const launcherCmd = windowsLauncherCmdPath()
+  if (fs.existsSync(launcherCmd)) fs.unlinkSync(launcherCmd)
+
+  // Clean up legacy VBS launcher and Run key if present
+  const legacyVbsPath = path.join(windowsAppDir(), "launcher.vbs")
+  if (fs.existsSync(legacyVbsPath)) fs.unlinkSync(legacyVbsPath)
+  spawnSync("reg.exe", [
+    "delete",
+    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+    "/v", "XcCopilotApi",
+    "/f",
+  ], { encoding: "utf-8", timeout: 10000 })
+
+  console.log(`Uninstalled scheduled task '${WINDOWS_TASK_NAME}'`)
 }
 
 function startWindows(): boolean {
-  const launcherVbs = windowsLauncherVbsPath()
-  if (!fs.existsSync(launcherVbs)) {
-    console.error(`Launcher not found: ${launcherVbs}`)
+  const result = spawnSync("schtasks", [
+    "/run",
+    "/tn", WINDOWS_TASK_NAME,
+  ], { encoding: "utf-8", timeout: 10000 })
+
+  if (result.status !== 0) {
+    console.error(`Scheduled task '${WINDOWS_TASK_NAME}' not found.`)
     console.error("Run 'xc-copilot-api-daemon install' first.")
     return false
   }
-
-  spawnSync("wscript.exe", [launcherVbs], {
-    encoding: "utf-8",
-    timeout: 10000,
-    detached: true,
-    stdio: "ignore",
-  })
 
   console.log("Started xc-copilot-api (background)")
   return true
@@ -547,28 +552,35 @@ function stopWindows(): boolean {
 }
 
 function statusWindows(): void {
-  // Check Run key
-  const regResult = spawnSync("reg.exe", [
-    "query",
-    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/v", WINDOWS_RUN_KEY_NAME,
+  // Check scheduled task
+  const taskResult = spawnSync("schtasks", [
+    "/query",
+    "/tn", WINDOWS_TASK_NAME,
+    "/fo", "LIST",
   ], { encoding: "utf-8", timeout: 5000 })
 
-  if (regResult.status !== 0) {
+  if (taskResult.status !== 0) {
     console.log("Daemon: not installed")
     return
   }
 
   console.log("Daemon: installed")
 
-  // Show command from VBS launcher
-  const launcherVbs = windowsLauncherVbsPath()
-  if (fs.existsSync(launcherVbs)) {
-    const content = fs.readFileSync(launcherVbs, "utf-8")
-    // Extract the command between cd /d ... ^& and >> ...
-    const match = content.match(/\^&\s*(.+?)\s*>>/)
-    if (match) {
-      console.log(`  Command: ${match[1].trim()}`)
+  // Parse task status from schtasks output
+  const statusMatch = (taskResult.stdout || "").match(/Status:\s*(.+)/i)
+  if (statusMatch) {
+    console.log(`  Task:   ${statusMatch[1].trim()}`)
+  }
+
+  // Show command from CMD launcher
+  const launcherCmd = windowsLauncherCmdPath()
+  if (fs.existsSync(launcherCmd)) {
+    const content = fs.readFileSync(launcherCmd, "utf-8")
+    const lines = content.split(/\r?\n/).filter((l) => l && !l.startsWith("@") && !l.startsWith("cd "))
+    if (lines.length > 0) {
+      // Strip log redirection to show just the command
+      const cmd = lines[0].replace(/\s*>>.*$/, "").trim()
+      if (cmd) console.log(`  Command: ${cmd}`)
     }
   }
 
@@ -819,7 +831,7 @@ const installCmd = defineCommand({
   meta: {
     name: "install",
     description:
-      "Install xc-copilot-api daemon (launchd on macOS, systemd on Linux, Run key on Windows)",
+      "Install xc-copilot-api daemon (launchd on macOS, systemd on Linux, Task Scheduler on Windows)",
   },
   args: {
     npx: {
