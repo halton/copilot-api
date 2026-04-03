@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 
+import { logError } from "~/lib/logger"
 import { state } from "~/lib/state"
 
 export const tokenRoute = new Hono()
@@ -10,7 +11,7 @@ tokenRoute.get("/", (c) => {
       token: state.copilotToken,
     })
   } catch (error) {
-    console.error("Error fetching token:", error)
+    logError("Error fetching token:", error)
     return c.json({ error: "Failed to fetch token", token: null }, 500)
   }
 })
