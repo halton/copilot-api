@@ -631,6 +631,22 @@ interface CopilotProcess {
 }
 
 function findAllCopilotProcesses(): CopilotProcess[] {
+  if (isWindows()) {
+    const result = spawnSync("powershell", [
+      "-NoProfile", "-Command",
+      `Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%copilot-api%' AND ProcessId != $PID" | ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)" }`,
+    ], { encoding: "utf-8", timeout: 10000 })
+    if (result.status !== 0) return []
+    const procs: CopilotProcess[] = []
+    for (const line of result.stdout.trim().split("\n")) {
+      if (!line.trim()) continue
+      const sep = line.indexOf("|")
+      if (sep < 0) continue
+      procs.push({ pid: line.slice(0, sep).trim(), command: line.slice(sep + 1).trim() })
+    }
+    return procs
+  }
+
   try {
     const output = execSync(
       "ps aux | grep -i copilot-api | grep -v grep",
@@ -682,14 +698,9 @@ function statusAll(): void {
     } else {
       console.log("No copilot-api LaunchAgent jobs found.")
     }
-
-    const procs = findAllCopilotProcesses()
-    if (procs.length > 0) {
-      console.log("\n=== Processes ===")
-      for (const proc of procs) {
-        console.log(`  PID ${proc.pid}: ${proc.command}`)
-      }
-    }
+  } else if (isWindows()) {
+    // Show Run key status
+    statusWindows()
   } else {
     const units = findAllCopilotSystemdUnits()
     if (units.length > 0) {
@@ -706,13 +717,13 @@ function statusAll(): void {
     } else {
       console.log("No copilot-api systemd units found.")
     }
+  }
 
-    const procs = findAllCopilotProcesses()
-    if (procs.length > 0) {
-      console.log("\n=== Processes ===")
-      for (const proc of procs) {
-        console.log(`  PID ${proc.pid}: ${proc.command}`)
-      }
+  const procs = findAllCopilotProcesses()
+  if (procs.length > 0) {
+    console.log("\n=== Processes ===")
+    for (const proc of procs) {
+      console.log(`  PID ${proc.pid}: ${proc.command}`)
     }
   }
 }
@@ -732,7 +743,7 @@ function stopAll(): void {
       })
       stopped++
     }
-  } else {
+  } else if (!isWindows()) {
     const units = findAllCopilotSystemdUnits()
     for (const unit of units) {
       console.log(`Stopping systemd unit '${unit}'...`)
@@ -748,11 +759,16 @@ function stopAll(): void {
   const procs = findAllCopilotProcesses()
   for (const proc of procs) {
     console.log(`Killing PID ${proc.pid}: ${proc.command}`)
-    try {
-      process.kill(Number.parseInt(proc.pid, 10), "SIGTERM")
+    if (isWindows()) {
+      spawnSync("taskkill", ["/PID", proc.pid, "/F"], { encoding: "utf-8", timeout: 5000 })
       stopped++
-    } catch {
-      // already dead
+    } else {
+      try {
+        process.kill(Number.parseInt(proc.pid, 10), "SIGTERM")
+        stopped++
+      } catch {
+        // already dead
+      }
     }
   }
 
