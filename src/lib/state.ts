@@ -5,6 +5,7 @@ export interface State {
   copilotToken?: string
 
   accountType: string
+  githubLogin?: string
   models?: ModelsResponse
   vsCodeVersion?: string
 

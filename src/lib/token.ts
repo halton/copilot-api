@@ -139,5 +139,6 @@ export async function setupGitHubToken(
 
 async function logUser() {
   const user = await getGitHubUser()
+  state.githubLogin = user.login
   consola.info(`Logged in as ${user.login}`)
 }

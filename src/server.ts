@@ -5,6 +5,7 @@ import { requestLogger } from "~/lib/logger"
 
 import { completionRoutes } from "./routes/chat-completions/route"
 import { embeddingRoutes } from "./routes/embeddings/route"
+import { indexRoute } from "./routes/index/route"
 import { messageRoutes } from "./routes/messages/route"
 import { modelRoutes } from "./routes/models/route"
 import { responseRoutes } from "./routes/responses/route"
@@ -16,7 +17,7 @@ export const server = new Hono()
 server.use(requestLogger())
 server.use(cors())
 
-server.get("/", (c) => c.text("Server running"))
+server.route("/", indexRoute)
 
 server.route("/chat/completions", completionRoutes)
 server.route("/models", modelRoutes)
