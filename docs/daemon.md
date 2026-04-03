@@ -14,7 +14,7 @@ npx -y -p xc-copilot-api xc-copilot-api-daemon <command>
 
 > **Tip:** You can create a shell alias to save typing:
 > ```sh
-> alias xc-copilot-api='npx -y -p xc-copilot-api xc-copilot-api-daemon'
+> alias xc-copilot-api-daemon='npx -y -p xc-copilot-api xc-copilot-api-daemon'
 > ```
 
 ## Commands
