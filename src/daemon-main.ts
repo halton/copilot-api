@@ -2,6 +2,6 @@
 
 import { runMain } from "citty"
 
-import { daemon } from "./daemon"
+import { daemon } from "./daemon/index"
 
 await runMain(daemon)
