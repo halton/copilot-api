@@ -2,12 +2,13 @@ import { Hono } from "hono"
 import { html } from "hono/html"
 
 import { state } from "~/lib/state"
+import packageJson from "../../../package.json"
 
 export const indexRoute = new Hono()
 
 // eslint-disable-next-line max-lines-per-function
 indexRoute.get("/", (c) => {
-  const version = process.env.npm_package_version ?? "unknown"
+  const version = process.env.npm_package_version ?? packageJson.version
   const login = state.githubLogin ?? "unknown"
   const accountType = state.accountType
 
