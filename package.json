@@ -16,7 +16,8 @@
   "author": "Xiaochen <wxc9312@gmail.com>",
   "type": "module",
   "bin": {
-    "xc-copilot-api": "./dist/main.js"
+    "xc-copilot-api": "./dist/main.js",
+    "xc-copilot-api-daemon": "./dist/service-main.js"
   },
   "files": [
     "dist"
@@ -33,12 +34,8 @@
     "start": "NODE_ENV=production bun run ./src/main.ts start",
     "typecheck": "tsc"
   },
-  "simple-git-hooks": {
-    "pre-commit": "bunx lint-staged"
-  },
-  "lint-staged": {
-    "*": "bun run lint --fix"
-  },
+  "simple-git-hooks": {},
+  "lint-staged": {},
   "dependencies": {
     "citty": "^0.1.6",
     "clipboardy": "^5.0.0",
