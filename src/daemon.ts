@@ -487,16 +487,6 @@ function uninstallWindows(): void {
   const launcherCmd = windowsLauncherCmdPath()
   if (fs.existsSync(launcherCmd)) fs.unlinkSync(launcherCmd)
 
-  // Clean up legacy VBS launcher and Run key if present
-  const legacyVbsPath = path.join(windowsAppDir(), "launcher.vbs")
-  if (fs.existsSync(legacyVbsPath)) fs.unlinkSync(legacyVbsPath)
-  spawnSync("reg.exe", [
-    "delete",
-    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-    "/v", "XcCopilotApi",
-    "/f",
-  ], { encoding: "utf-8", timeout: 10000 })
-
   console.log(`Uninstalled scheduled task '${WINDOWS_TASK_NAME}'`)
 }
 
