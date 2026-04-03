@@ -17,7 +17,7 @@
   "type": "module",
   "bin": {
     "xc-copilot-api": "./dist/main.js",
-    "xc-copilot-api-daemon": "./dist/service-main.js"
+    "xc-copilot-api-daemon": "./dist/daemon-main.js"
   },
   "files": [
     "dist"

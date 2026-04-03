@@ -44,7 +44,7 @@ function launcherPath(): string {
 // Build start command
 // ---------------------------------------------------------------------------
 
-function buildStartArgs(args: ServiceInstallArgs): string[] {
+function buildStartArgs(args: DaemonInstallArgs): string[] {
   const cmd = ["xc-copilot-api", "start"]
   if (args.port) cmd.push("--port", args.port)
   if (args.verbose) cmd.push("--verbose")
@@ -55,13 +55,13 @@ function buildStartArgs(args: ServiceInstallArgs): string[] {
   return cmd
 }
 
-function buildNpxCommand(args: ServiceInstallArgs): string {
+function buildNpxCommand(args: DaemonInstallArgs): string {
   const startArgs = buildStartArgs(args)
   // npx always fetches latest → auto-update on restart
   return ["npx", ...startArgs].map(shellQuote).join(" ")
 }
 
-function buildDirectCommand(args: ServiceInstallArgs): string {
+function buildDirectCommand(args: DaemonInstallArgs): string {
   const startArgs = buildStartArgs(args)
   return startArgs.map(shellQuote).join(" ")
 }
@@ -75,7 +75,7 @@ function shellQuote(s: string): string {
 // macOS (launchd)
 // ---------------------------------------------------------------------------
 
-function installMacOS(args: ServiceInstallArgs): void {
+function installMacOS(args: DaemonInstallArgs): void {
   const plist = plistPath()
   const launcher = launcherPath()
 
@@ -143,7 +143,7 @@ function uninstallMacOS(): void {
     fs.unlinkSync(launcher)
     console.log(`Removed launcher: ${launcher}`)
   }
-  console.log(`Uninstalled service '${LAUNCHD_LABEL}'`)
+  console.log(`Uninstalled daemon '${LAUNCHD_LABEL}'`)
 }
 
 function stopMacOS(): boolean {
@@ -168,14 +168,14 @@ function startMacOS(): boolean {
   const plist = plistPath()
   if (!fs.existsSync(plist)) {
     console.error(`LaunchAgent plist not found: ${plist}`)
-    console.error("Run 'xc-copilot-api service install' first.")
+    console.error("Run 'xc-copilot-api-daemon install' first.")
     return false
   }
 
   const domain = `gui/${process.getuid?.() ?? 501}`
   const job = `${domain}/${LAUNCHD_LABEL}`
 
-  // Bootstrap (load) the service
+  // Bootstrap (load) the daemon
   const bootstrap = spawnSync("launchctl", ["bootstrap", domain, plist], {
     encoding: "utf-8",
     timeout: 10000,
@@ -207,11 +207,11 @@ function startMacOS(): boolean {
 function statusMacOS(): void {
   const plist = plistPath()
   if (!fs.existsSync(plist)) {
-    console.log("Service: not installed")
+    console.log("Daemon: not installed")
     return
   }
 
-  console.log(`Service: installed`)
+  console.log(`Daemon: installed`)
   console.log(`  Plist: ${plist}`)
 
   const launcher = launcherPath()
@@ -271,7 +271,7 @@ function statusMacOS(): void {
 // Linux (systemd)
 // ---------------------------------------------------------------------------
 
-function installLinux(args: ServiceInstallArgs): void {
+function installLinux(args: DaemonInstallArgs): void {
   const unitPath = systemdUnitPath()
   const launcher = launcherPath()
 
@@ -381,11 +381,11 @@ function stopLinux(): boolean {
 function statusLinux(): void {
   const unitPath = systemdUnitPath()
   if (!fs.existsSync(unitPath)) {
-    console.log("Service: not installed")
+    console.log("Daemon: not installed")
     return
   }
 
-  console.log("Service: installed")
+  console.log("Daemon: installed")
   console.log(`  Unit: ${unitPath}`)
 
   const launcher = launcherPath()
@@ -404,7 +404,7 @@ function statusLinux(): void {
     ["--user", "status", SYSTEMD_UNIT, "--no-pager"],
     { encoding: "utf-8", timeout: 5000 },
   )
-  // systemctl status returns non-zero if service is not running, that's ok
+  // systemctl status returns non-zero if daemon is not running, that's ok
   console.log(result.stdout.trim())
 }
 
@@ -589,7 +589,7 @@ function stopAll(): void {
 // Platform dispatch
 // ---------------------------------------------------------------------------
 
-interface ServiceInstallArgs {
+interface DaemonInstallArgs {
   npx: boolean
   port?: string
   verbose: boolean
@@ -609,7 +609,7 @@ function isLinux(): boolean {
 function assertSupported(): void {
   if (!isMacOS() && !isLinux()) {
     console.error(
-      "Service management is only supported on macOS and Linux.",
+      "Daemon management is only supported on macOS and Linux.",
     )
     process.exit(1)
   }
@@ -663,7 +663,7 @@ const installCmd = defineCommand({
   },
   run({ args }) {
     assertSupported()
-    const installArgs: ServiceInstallArgs = {
+    const installArgs: DaemonInstallArgs = {
       npx: args.npx,
       port: args.port,
       verbose: args.verbose,
@@ -704,7 +704,7 @@ const statusCmd = defineCommand({
       type: "boolean",
       default: false,
       description:
-        "Show all copilot-api related services and processes",
+        "Show all copilot-api related daemons and processes",
     },
   },
   run({ args }) {
@@ -746,7 +746,7 @@ const stopCmd = defineCommand({
       type: "boolean",
       default: false,
       description:
-        "Stop all copilot-api related services and kill all processes",
+        "Stop all copilot-api related daemons and kill all processes",
     },
   },
   run({ args }) {
@@ -802,10 +802,10 @@ const logsCmd = defineCommand({
 })
 
 // ---------------------------------------------------------------------------
-// Main service command
+// Main daemon command
 // ---------------------------------------------------------------------------
 
-export const service = defineCommand({
+export const daemon = defineCommand({
   meta: {
     name: "xc-copilot-api-daemon",
     description:
