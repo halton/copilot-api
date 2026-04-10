@@ -1,4 +1,6 @@
+import { logger } from "hono/logger"
 import { filterResponseHeaders, postCopilotPassthrough } from "./passthrough"
+import consola from "consola"
 
 type MessagesPath = "/v1/messages" | "/v1/messages/count_tokens"
 
@@ -7,6 +9,39 @@ const REQUEST_HEADERS_TO_FORWARD = [
   "anthropic-beta",
   "anthropic-version",
 ] as const
+
+// For GHC, just remove the 1M header, use the original model name
+// GHC will automatically route to the 1M model
+const CONTEXT_1M_BETA = "context-1m-2025-08-07"
+
+const UNSUPPORTED_BETA_VALUES = new Set([
+  CONTEXT_1M_BETA,
+])
+
+function hasContext1mBeta(headers: Headers): boolean {
+  const beta = headers.get("anthropic-beta")
+  if (!beta) return false
+  return beta.split(",").map(v => v.trim()).includes(CONTEXT_1M_BETA)
+}
+
+function sanitizeBetaHeader(headers: Headers): Headers {
+  const beta = headers.get("anthropic-beta")
+  if (!beta) return headers
+
+  const filtered = beta
+    .split(",")
+    .map(v => v.trim())
+    .filter(v => !UNSUPPORTED_BETA_VALUES.has(v))
+    .join(",")
+
+  const newHeaders = new Headers(headers)
+  if (filtered) {
+    newHeaders.set("anthropic-beta", filtered)
+  } else {
+    newHeaders.delete("anthropic-beta")
+  }
+  return newHeaders
+}
 
 /**
  * Parse body JSON and rebuild cache_control objects to only keep "type",
@@ -45,6 +80,13 @@ export async function createMessages(
   requestHeaders: Headers,
   path: MessagesPath = "/v1/messages",
 ): Promise<Response> {
+  consola.debug(`Original request headers: ${JSON.stringify([...requestHeaders])}`)
+  if (hasContext1mBeta(requestHeaders)) {
+    consola.debug(
+      "Request includes unsupported beta features. Stripping unsupported beta flags and fields.",
+    )
+    requestHeaders = sanitizeBetaHeader(requestHeaders)
+  }
   return postCopilotPassthrough({
     path,
     body: stripUnsupportedFields(bodyText),
