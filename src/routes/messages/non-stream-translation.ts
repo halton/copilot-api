@@ -47,11 +47,12 @@ export function translateToOpenAI(
 }
 
 function translateModelName(model: string): string {
-  // Subagent requests use a specific model number which Copilot doesn't support
-  if (model.startsWith("claude-sonnet-4-")) {
-    return model.replace(/^claude-sonnet-4-.*/, "claude-sonnet-4")
-  } else if (model.startsWith("claude-opus-")) {
-    return model.replace(/^claude-opus-4-.*/, "claude-opus-4")
+  // Claude Code sends versioned model names (claude-opus-4-7-20250514, claude-opus-4-7,
+  // claude-opus-4.7, claude-sonnet-4-5-20250514, etc.) that Copilot doesn't support.
+  // Normalize to base names: claude-opus-4, claude-sonnet-4, etc.
+  const match = model.match(/^(claude-[a-z]+-\d+)[\-.].*/)
+  if (match) {
+    return match[1]
   }
   return model
 }
